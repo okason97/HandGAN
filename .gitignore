@@ -1,0 +1,5 @@
+dataset/__pycache__
+dataset/autsl/
+dataset/COCOPersons/
+results/
+backup/
