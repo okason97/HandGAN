@@ -52,9 +52,9 @@ class ImageDatasetWrapper():
     def __getitem__(self, key):
         if isinstance(key, slice):
             range(*key.indices(len(self.dataset)))
-            return transforms.ToPILImage()(torch.tensor([np.asarray(self.dataset[i][0]) for i in range(*key.indices(len(self.dataset)))]))
+            return torch.tensor([np.asarray(self.dataset[i][0]) for i in range(*key.indices(len(self.dataset)))])
         elif isinstance(key, int):
-            return transforms.ToPILImage()(torch.tensor(self.dataset[key][0]))
+            return torch.tensor(self.dataset[key][0])
 
     def __len__(self):
         return len(self.dataset)
