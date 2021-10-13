@@ -109,15 +109,15 @@ class CocoDataset(Dataset):
     def __len__(self):
         return len(self.ids)
 
-def load_images_and_poses(batch_size, transforms=None, root='./COCOPersons'):
+def load_images_and_poses(batch_size, transforms=None, root='./COCOPersons', shape = 64):
 
     dataType='train2017'
     annFile = '{}/annotations/person_keypoints_{}.json'.format(root, dataType)    
-    train_dataset = CocoDataset(root, annFile, dataType, transforms)
+    train_dataset = CocoDataset(root, annFile, dataType, transforms, shape = shape)
 
     dataType='val2017'
     annFile = '{}/annotations/person_keypoints_{}.json'.format(root, dataType)    
-    val_dataset = CocoDataset(root, annFile, dataType, transforms)
+    val_dataset = CocoDataset(root, annFile, dataType, transforms, shape = shape)
 
     dataloaders = {'train': DataLoader(train_dataset, shuffle=True, batch_size=batch_size, pin_memory=True, num_workers=4),
                    'val': DataLoader(val_dataset, shuffle=True, batch_size=batch_size, pin_memory=True, num_workers=4)}

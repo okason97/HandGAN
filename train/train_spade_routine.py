@@ -74,12 +74,12 @@ if __name__ == "__main__":
 
     print("Creating dataset object")
     # load data
-    batch_size = 8
-    dims = [64, 64]
+    batch_size = 16
+    dims = [128, 128]
     transforms_compose = transforms.Compose([
         transforms.Resize(dims)])
     root = './datasets/COCOPersons'
-    image_datasets, dataloaders = load_images_and_poses(batch_size, transforms_compose, root)
+    image_datasets, dataloaders = load_images_and_poses(batch_size, transforms_compose, root, shape = dims[0])
     dataset = image_datasets['train']
     loader = dataloaders['train']
     n_classes = 1
@@ -105,7 +105,7 @@ if __name__ == "__main__":
     shared_dim = 128
     ortho_reg = False
     ortho_strength = 1e-4
-    generator = Generator(base_channels=base_channels, bottom_width=8, z_dim=z_dim, shared_dim=shared_dim, n_classes=n_classes, c_dim=17).to(device)
+    generator = Generator(base_channels=base_channels, bottom_width=16, z_dim=z_dim, shared_dim=shared_dim, n_classes=n_classes, c_dim=17).to(device)
     discriminator = Discriminator(base_channels=base_channels, n_classes=n_classes, in_channels=20).to(device)
 
     # Initialize weights orthogonally
