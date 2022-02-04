@@ -1,6 +1,5 @@
 from pycocotools.coco import COCO
-from torch import zeros, tensor, unsqueeze
-from torch.nn.functional import interpolate
+from torch import zeros, tensor
 from torch.utils.data import Dataset, DataLoader
 import skimage.io as io
 import math
@@ -20,7 +19,8 @@ class CocoDataset(Dataset):
         for id in self.ids:
             annIds = self.coco.getAnnIds(imgIds=id, catIds=self.catIds, areaRng=[8000, math.inf], iscrowd=False)
             anns = self.coco.loadAnns(annIds)
-            if len(anns)>0:
+            # if len(anns)>0 and 0 not in anns[0]['keypoints']:
+            if len(anns)>0 and 0 not in anns[0]['keypoints'][10:22]:
                 usefulIds.append(id)
         self.ids = usefulIds
         self.keypoint_pad = keypoint_pad
@@ -82,14 +82,15 @@ class CocoDataset(Dataset):
     def __getitem__(self, idx):
         id = self.ids[idx]
         image = self.load_image(id)
-        
+
         # fix BW images
         if len(image.shape)<3:
             image = np.moveaxis(np.repeat(np.expand_dims(image,0),3,axis=0),0,2)
 
         annIds = self.coco.getAnnIds(imgIds=id, catIds=self.catIds, areaRng=[8000, math.inf], iscrowd=False)
         anns = self.coco.loadAnns(annIds)
-        selected_person = np.random.randint(0, len(anns))
+        selected_person = 0
+        # selected_person = np.random.randint(0, len(anns))
 
         # get annotation data for cropping
         y = round(anns[selected_person]['bbox'][0])
@@ -109,15 +110,15 @@ class CocoDataset(Dataset):
     def __len__(self):
         return len(self.ids)
 
-def load_images_and_poses(batch_size, transforms=None, root='./COCOPersons', shape = 64):
+def load_images_and_poses(batch_size, transforms=None, root='./COCOPersons', shape = 64, keypoint_pad = 3):
 
     dataType='train2017'
     annFile = '{}/annotations/person_keypoints_{}.json'.format(root, dataType)    
-    train_dataset = CocoDataset(root, annFile, dataType, transforms, shape = shape)
+    train_dataset = CocoDataset(root, annFile, dataType, transforms, shape = shape, keypoint_pad = keypoint_pad)
 
     dataType='val2017'
     annFile = '{}/annotations/person_keypoints_{}.json'.format(root, dataType)    
-    val_dataset = CocoDataset(root, annFile, dataType, transforms, shape = shape)
+    val_dataset = CocoDataset(root, annFile, dataType, transforms, shape = shape, keypoint_pad = keypoint_pad)
 
     dataloaders = {'train': DataLoader(train_dataset, shuffle=True, batch_size=batch_size, pin_memory=True, num_workers=4),
                    'val': DataLoader(val_dataset, shuffle=True, batch_size=batch_size, pin_memory=True, num_workers=4)}

@@ -9,8 +9,8 @@ import pickle
 
 import sys
 sys.path.append('./')
-from models.spade import Generator, Discriminator
-from datasets.autsl import load_images_and_poses
+from models.ada_gan import Generator, Discriminator
+from datasets.rwth import load_data
 
 def ortho(model, strength=1e-4, blacklist=[]):
     with torch.no_grad():
@@ -76,18 +76,18 @@ if __name__ == "__main__":
     batch_size = 16
     dims = [64, 64]
     transforms_compose = transforms.Compose([
+        transforms.ToTensor(),
         transforms.Resize(dims)])
-    dir_images = './datasets/autsl/cropped_images/'
-    dir_poses = './datasets/autsl/poses/'
-    image_datasets, dataloaders = load_images_and_poses(batch_size, transforms_compose, dir_images, dir_poses)
+    # data_dir = './datasets/autsl/cropped_images/'
+    image_datasets, dataloaders, n_classes = load_data(batch_size, transforms_compose)
     dataset = image_datasets['train']
     loader = dataloaders['train']
-    n_classes = 226
+    # n_classes = 226
 
     # ADA
     augmentation_transforms = [
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomAffine(degrees=20, translate=(0.3, 0.3), scale=(0.5, 1.5)),
+        # transforms.RandomHorizontalFlip(p=0.5),
+        # transforms.RandomAffine(degrees=20, translate=(0.3, 0.3), scale=(0.5, 1.5)),
         # transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
     ]
     p = torch.tensor(0.0, device=device)
@@ -101,14 +101,12 @@ if __name__ == "__main__":
     # Initialize models
     print("Creating models")
     base_channels = 64
-    out_channels=dataset[0][2].shape[0]
-    in_channels=dataset[0][0].shape[0]+dataset[0][2].shape[0]
-    z_dim = 20
+    z_dim = 120
     shared_dim = 128
     ortho_reg = False
     ortho_strength = 1e-4
-    generator = Generator(base_channels=base_channels, out_channels=out_channels, bottom_width=8, z_dim=z_dim, shared_dim=shared_dim, n_classes=n_classes).to(device)
-    discriminator = Discriminator(base_channels=base_channels, in_channels=in_channels, n_classes=n_classes).to(device)
+    generator = Generator(base_channels=base_channels, bottom_width=8, z_dim=z_dim, shared_dim=shared_dim, n_classes=n_classes).to(device)
+    discriminator = Discriminator(base_channels=base_channels, n_classes=n_classes).to(device)
 
     # Initialize weights orthogonally
     for module in generator.modules():
@@ -129,7 +127,7 @@ if __name__ == "__main__":
         with open(var_dir+'fid_stats.pkl', 'rb') as f:
             real_m, real_s = pickle.load(f)
     else:
-        real_m, real_s = pfw.get_stats(ImageDatasetWrapper(dataset))
+        real_m, real_s = pfw.get_stats(ImageDatasetWrapper(image_datasets['val']))
         with open(var_dir+'fid_stats.pkl', 'wb') as f:
             pickle.dump([real_m, real_s], f)
     print("FID parameters calculated!")
@@ -146,17 +144,19 @@ if __name__ == "__main__":
 
     # Generate random noise (z)
     fixed_z = torch.randn(batch_size, z_dim, device=device)
-    fixed_image, fixed_label, fixed_pose = next(iter(loader))
-    fixed_y = torch.cat([fixed_pose, fixed_label.view(-1,1).expand(-1, fixed_pose.shape[2]).repeat(1,fixed_pose.shape[3]).view(fixed_pose.shape[0], 1, fixed_pose.shape[2], fixed_pose.shape[3])], 1)
+    fixed_image, fixed_y = next(iter(loader))
+    print(fixed_image.shape)
     save_image(fixed_image, img_dir+"real.png")
-    # Generate a batch of poses (y)
-    fixed_y = fixed_y.to(device)
+    # Generate a batch of labels (y), one for each class
+    fixed_y = fixed_y.to(device).long()
+    # Retrieve class embeddings (y_emb) from generator
+    fixed_y_emb = generator.shared_emb(fixed_y)
 
     image_number = 0
 
     fakes = torch.tensor([], device='cpu')
     fids = torch.tensor([], device='cpu')
-
+    
     fid_step = 0
 
     for epoch in range(n_epochs):
@@ -164,8 +164,7 @@ if __name__ == "__main__":
         print('#epoch: {}'.format(epoch))
 
         for batch_ndx, sample in enumerate(loader):
-            real, label, pose = sample[0], sample[1], sample[2]
-            _y = torch.cat([pose, label.view(-1,1).expand(-1, pose.shape[2]).repeat(1, pose.shape[3]).view(pose.shape[0], 1, pose.shape[2], pose.shape[3])], 1)
+            real, labels = sample[0], sample[1]
 
             batch_size = len(real)
             real = real.to(device)
@@ -180,12 +179,13 @@ if __name__ == "__main__":
                 ### Update discriminator ###
                 # Get noise corresponding to the current batch_size 
                 z = torch.randn(batch_size, z_dim, device=device)       # Generate random noise (z)
-                y = _y.to(device)                            # Generate a batch of labels (y), one for each class
-                fake = generator(z, y)
+                y = labels.to(device).long()                            # Generate a batch of labels (y), one for each class
+                y_emb = generator.shared_emb(y)                         # Retrieve class embeddings (y_emb) from generator
+                fake = generator(z, y_emb)
                 fake = augmentation(fake.detach())
 
-                disc_fake_pred = discriminator(torch.cat([fake, y], dim=1))
-                disc_real_pred = discriminator(torch.cat([real_augmented, y], dim=1))
+                disc_fake_pred = discriminator(fake, y)
+                disc_real_pred = discriminator(real_augmented, y)
 
                 ada_buf += torch.tensor(
                     (torch.clamp(torch.sign(disc_real_pred), min=0, max=1).sum().item(), disc_real_pred.shape[0]),
@@ -207,16 +207,16 @@ if __name__ == "__main__":
             # Zero out the generator gradients
             gen_opt.zero_grad()
 
-            fake = generator(z, y)
+            fake = generator(z, y_emb)
             fake = augmentation(fake)
-            disc_fake_pred = discriminator(torch.cat([fake, y], dim=1))
+            disc_fake_pred = discriminator(fake, y)
             #loss
             gen_loss =  generator.loss(disc_fake_pred)
             # Update gradients
             gen_loss.backward()
 
             if ortho_reg:
-                ortho(generator, ortho_strength)
+                ortho(generator, ortho_strength, blacklist=[param for param in generator.shared_emb.parameters()])
 
             # Update optimizer
             gen_opt.step()
@@ -236,7 +236,7 @@ if __name__ == "__main__":
 
             cur_step +=1
 
-            if cur_step % 2000 == 0:
+            if cur_step*batch_size/(fid_step+1) > len(ImageDatasetWrapper(image_datasets['val'])):
                 fid_step += 1
                 print('===========================================================================')
                 val_fid = pfw.fid(fakes, real_m=real_m, real_s=real_s)
@@ -254,11 +254,11 @@ if __name__ == "__main__":
                     torch.save(generator.state_dict(), (model_dir+'gen.state_dict'))
                     torch.save(discriminator.state_dict(), (model_dir+'disc.state_dict'))
                 print('===========================================================================')
-                fake = generator(fixed_z, fixed_y)
+                fake = generator(fixed_z, fixed_y_emb)
                 save_image(fake, img_dir+"generated_FID_step{}.png".format(image_number))
 
         print('saved images')
-        fake = generator(fixed_z, fixed_y)
+        fake = generator(fixed_z, fixed_y_emb)
         save_image(fake, img_dir+"generated{}.png".format(image_number))
         save_image(augmentation(fixed_image), img_dir+"augmented_real.png")
         image_number += 1

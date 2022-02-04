@@ -1,11 +1,11 @@
-from torch.utils import data
 import os
 import torch
-from torchvision import transforms, datasets
+from torchvision import transforms
 from torchvision.utils import save_image
 import sys
 sys.path.append('./')
-from models.ada_gan import Generator, Discriminator
+from models.ada_gan import Generator
+from datasets.rwth import load_data
 
 if __name__ == "__main__":
     device = 'cuda'
@@ -24,9 +24,9 @@ if __name__ == "__main__":
         transforms.ToTensor(),
         transforms.Resize(dims)])
     print("Creating dataset object")
-    dataset = datasets.ImageFolder(root='./datasets/autsl/images/', transform=transforms_compose)
-    n_classes = len(dataset.classes)
-    loader = data.DataLoader(dataset, shuffle=True, batch_size=batch_size, pin_memory=True, num_workers=4)
+    image_datasets, dataloaders, n_classes = load_data(batch_size, transforms_compose)
+    dataset = image_datasets['train']
+    loader = dataloaders['train']
 
     # Initialize models
     print("Creating models")
@@ -40,12 +40,12 @@ if __name__ == "__main__":
     n_gen_images = 100
 
     for y in range(n_classes):
-        if not os.path.exists(img_dir+dataset.classes[y]+"/"):
-            os.makedirs(img_dir+dataset.classes[y]+"/")
-        print('class: {}'.format(dataset.classes[y]))
+        if not os.path.exists(img_dir+str(dataset.classes.numpy()[y])+"/"):
+            os.makedirs(img_dir+str(dataset.classes.numpy()[y])+"/")
+        print('class: {}'.format(str(dataset.classes.numpy()[y])))
         y_emb = generator.shared_emb(torch.tensor([y]*batch_size, dtype=torch.long, device=device))
         for n_gen in range(n_gen_images):
 
             z = torch.clamp(torch.randn(batch_size, z_dim, device=device), min=-0.4, max=0.4)      # Generate random noise (z)
             fake = generator(z, y_emb)
-            save_image(fake, img_dir+dataset.classes[y]+"/{}{}.png".format(dataset.classes[y],n_gen))
+            save_image(fake, img_dir+str(dataset.classes.numpy()[y])+"/{}{}.png".format(str(dataset.classes.numpy()[y]),n_gen))
